@@ -7,269 +7,403 @@ import numpy as np
 class MagicRemover:
     def __init__(self, root):
         self.root = root
-        self.root.title("MagicRemover v3.1 (智能实时容差)")
-        self.root.geometry("1100x800")
+        self.root.title("MagicRemover v5.0 (缩放移动 + 工具模式)")
+        self.root.geometry("1400x850")
         
-        # --- 核心变量 ---
-        self.original_cv = None     # 原图
-        self.current_alpha_mask = None # 当前显示的蒙版
-        
-        # 历史记录栈 (存的是“已经固定下来”的蒙版)
-        self.history_stack = []     
-        
-        # --- 实时调整相关的变量 ---
-        self.active_click_coords = None # 最后一次点击的坐标 (x, y)
-        self.mask_before_active = None  # 最后一次点击“之前”的蒙版状态
-        
+        # --- 核心数据 ---
+        self.original_cv = None     
+        self.actions = []           
+        self.action_counter = 0     
         self.final_cv_result = None
-        self.tolerance = 40 
-        self.scale_factor = 1.0
-        self.offset_x = 0
-        self.offset_y = 0
+        
+        # --- 视图控制变量 ---
+        self.mode = "pick"          # 当前模式: "pick" (取色) 或 "move" (移动)
+        self.scale_factor = 1.0     # 缩放比例
+        self.offset_x = 0.0         # X轴偏移
+        self.offset_y = 0.0         # Y轴偏移
+        self.last_mouse_x = 0       # 拖拽时的临时变量
+        self.last_mouse_y = 0
+        
+        # 默认容差
+        self.tolerance = 40
 
         self.setup_ui()
 
     def setup_ui(self):
-        top_frame = tk.Frame(self.root, pady=15, bg="#f0f0f0")
+        # 1. 顶部主控制栏 (打开/保存/容差)
+        top_frame = tk.Frame(self.root, pady=8, bg="#f5f5f5", relief="raised", bd=1)
         top_frame.pack(fill=tk.X)
 
-        btn_frame = tk.Frame(top_frame, bg="#f0f0f0")
-        btn_frame.pack(side=tk.LEFT, padx=15)
-
-        tk.Button(btn_frame, text="📂 打开图片", command=self.upload_image, bg="#ddd", width=10).pack(side=tk.LEFT, padx=2)
+        tk.Button(top_frame, text="📂 打开图片", command=self.upload_image, bg="#ddd", width=10).pack(side=tk.LEFT, padx=10)
         
-        self.btn_undo = tk.Button(btn_frame, text="↩️ 撤销", command=self.undo_action, state=tk.DISABLED, bg="#FF9800", fg="white", font=("Arial", 10, "bold"))
-        self.btn_undo.pack(side=tk.LEFT, padx=5)
-        
-        tk.Button(btn_frame, text="🔄 重置", command=self.reset_image, bg="#f44336", fg="white").pack(side=tk.LEFT, padx=2)
-
-        param_frame = tk.Frame(top_frame, bg="#f0f0f0")
-        param_frame.pack(side=tk.LEFT, padx=20)
-
-        tk.Label(param_frame, text="选中色:", bg="#f0f0f0").pack(side=tk.LEFT)
-        self.lbl_color_preview = tk.Label(param_frame, text="", bg="#FFFFFF", width=6, relief="sunken")
-        self.lbl_color_preview.pack(side=tk.LEFT, padx=5)
-
-        tk.Label(param_frame, text="实时容差:", bg="#f0f0f0").pack(side=tk.LEFT, padx=5)
-        # command=self.update_tolerance 会在拖动时实时触发
-        self.scale_tol = tk.Scale(param_frame, from_=0, to=150, orient=tk.HORIZONTAL, command=self.update_tolerance, length=200, bg="#f0f0f0")
+        # 容差条
+        tk.Label(top_frame, text="容差:", bg="#f5f5f5").pack(side=tk.LEFT, padx=5)
+        self.scale_tol = tk.Scale(top_frame, from_=0, to=150, orient=tk.HORIZONTAL, command=self.update_last_action_tolerance, length=150, bg="#f5f5f5")
         self.scale_tol.set(self.tolerance)
         self.scale_tol.pack(side=tk.LEFT)
         
-        tk.Button(top_frame, text="💾 保存结果", command=self.save_image, bg="#4CAF50", fg="white", font=("Arial", 10, "bold"), width=10).pack(side=tk.RIGHT, padx=20)
+        tk.Button(top_frame, text="🔄 重置", command=self.reset_all, bg="#FF9800", fg="white").pack(side=tk.RIGHT, padx=10)
+        tk.Button(top_frame, text="💾 保存", command=self.save_image, bg="#4CAF50", fg="white", font=("bold")).pack(side=tk.RIGHT, padx=10)
 
-        frame_img = tk.Frame(self.root)
-        frame_img.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # --- 主体区域 ---
+        main_pane = tk.PanedWindow(self.root, orient=tk.HORIZONTAL, bg="#ccc", sashwidth=4)
+        main_pane.pack(fill=tk.BOTH, expand=True)
 
-        frame_left = tk.Frame(frame_img)
-        frame_left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        tk.Label(frame_left, text="👇 点击去背 (点完后可拖动滑块微调)", font=("Arial", 10, "bold")).pack()
+        # === 左侧：原图操作区 ===
+        frame_left = tk.Frame(main_pane, bg="#333")
+        main_pane.add(frame_left, stretch="always", width=600)
+
+        # >> 左侧工具栏 (新增) <<
+        tool_bar = tk.Frame(frame_left, bg="#444", pady=5)
+        tool_bar.pack(fill=tk.X)
         
-        self.canvas_orig = tk.Canvas(frame_left, bg="#333", cursor="crosshair")
+        # 模式切换按钮 (使用 Emoji 模拟图标)
+        self.btn_pick = tk.Button(tool_bar, text="🖌️ 取色模式", command=lambda: self.set_mode("pick"), 
+                                  bg="#666", fg="white", relief="sunken", width=12)
+        self.btn_pick.pack(side=tk.LEFT, padx=5)
+        
+        self.btn_move = tk.Button(tool_bar, text="✋ 移动模式", command=lambda: self.set_mode("move"), 
+                                  bg="#444", fg="white", relief="raised", width=12)
+        self.btn_move.pack(side=tk.LEFT, padx=5)
+        
+        tk.Label(tool_bar, text="(滚轮缩放，移动模式下拖拽)", fg="#aaa", bg="#444", font=("Arial", 8)).pack(side=tk.RIGHT, padx=10)
+
+        # 画布
+        self.canvas_orig = tk.Canvas(frame_left, bg="#2b2b2b", highlightthickness=0)
         self.canvas_orig.pack(fill=tk.BOTH, expand=True)
-        self.canvas_orig.bind("<Button-1>", self.on_click_bg) 
+        
+        # === 绑定鼠标事件 ===
+        self.canvas_orig.bind("<Button-1>", self.on_mouse_down)   # 点击/开始拖拽
+        self.canvas_orig.bind("<B1-Motion>", self.on_mouse_drag)  # 拖拽中
+        self.canvas_orig.bind("<ButtonRelease-1>", self.on_mouse_up) # 释放
+        # 绑定滚轮 (Windows用 <MouseWheel>, Linux用 <Button-4>/<Button-5>)
+        self.canvas_orig.bind("<MouseWheel>", self.on_zoom) 
+        self.canvas_orig.bind("<Button-4>", self.on_zoom)
+        self.canvas_orig.bind("<Button-5>", self.on_zoom)
 
-        frame_right = tk.Frame(frame_img)
-        frame_right.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
-        tk.Label(frame_right, text="最终效果预览", font=("Arial", 10, "bold")).pack()
-        self.lbl_result = tk.Label(frame_right, bg="#eee", relief="sunken")
-        self.lbl_result.pack(fill=tk.BOTH, expand=True)
+        # === 中间：结果预览 ===
+        frame_mid = tk.Frame(main_pane, bg="#333")
+        main_pane.add(frame_mid, stretch="always", width=500)
+        tk.Label(frame_mid, text="最终结果预览 (同步视角)", font=("Arial", 10, "bold"), bg="#eee", pady=5).pack(fill=tk.X)
+        
+        self.canvas_result = tk.Canvas(frame_mid, bg="#2b2b2b", highlightthickness=0)
+        self.canvas_result.pack(fill=tk.BOTH, expand=True)
 
+        # === 右侧：历史记录 ===
+        self.frame_history = tk.Frame(main_pane, bg="white")
+        main_pane.add(self.frame_history, stretch="never", width=280)
+        
+        tk.Label(self.frame_history, text="去色记录", font=("Arial", 10, "bold"), bg="#eee", pady=6).pack(fill=tk.X)
+        
+        self.history_canvas = tk.Canvas(self.frame_history, bg="white", highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(self.frame_history, orient="vertical", command=self.history_canvas.yview)
+        self.scrollable_frame = tk.Frame(self.history_canvas, bg="white")
+
+        self.scrollable_frame.bind("<Configure>", lambda e: self.history_canvas.configure(scrollregion=self.history_canvas.bbox("all")))
+        self.history_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.history_canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.history_canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+
+    # --- 模式切换逻辑 ---
+    def set_mode(self, mode):
+        self.mode = mode
+        if mode == "pick":
+            self.canvas_orig.config(cursor="crosshair") # 取色用十字准星
+            self.btn_pick.config(bg="#666", relief="sunken") # 按钮按下状态
+            self.btn_move.config(bg="#444", relief="raised")
+        else:
+            self.canvas_orig.config(cursor="fleur") # 移动用移动图标
+            self.btn_pick.config(bg="#444", relief="raised")
+            self.btn_move.config(bg="#666", relief="sunken")
+
+    # --- 鼠标交互逻辑 (核心) ---
+    def on_zoom(self, event):
+        """处理滚轮缩放"""
+        if self.original_cv is None: return
+        
+        # 滚轮判定：Windows delta, Linux num
+        if event.num == 5 or event.delta < 0:
+            scale_mult = 0.9 # 缩小
+        else:
+            scale_mult = 1.1 # 放大
+
+        # 限制缩放范围
+        new_scale = self.scale_factor * scale_mult
+        if new_scale < 0.1 or new_scale > 20: return
+
+        # === 核心算法：以鼠标为中心缩放 ===
+        # 1. 计算鼠标当前在图片上的相对位置 (Mouse_Image_X)
+        # 公式: Screen_X = Image_X * Scale + Offset
+        # 所以: Image_X = (Screen_X - Offset) / Scale
+        mouse_img_x = (event.x - self.offset_x) / self.scale_factor
+        mouse_img_y = (event.y - self.offset_y) / self.scale_factor
+
+        # 2. 更新缩放比例
+        self.scale_factor = new_scale
+
+        # 3. 反推新的 Offset，使得 Mouse_Image_X 在屏幕上的位置不变
+        # New_Offset = Screen_X - (Image_X * New_Scale)
+        self.offset_x = event.x - (mouse_img_x * self.scale_factor)
+        self.offset_y = event.y - (mouse_img_y * self.scale_factor)
+
+        self.redraw_canvases()
+
+    def on_mouse_down(self, event):
+        if self.mode == "move":
+            # 记录拖拽起始点
+            self.last_mouse_x = event.x
+            self.last_mouse_y = event.y
+        elif self.mode == "pick":
+            # 执行取色逻辑
+            self.handle_color_pick(event.x, event.y)
+
+    def on_mouse_drag(self, event):
+        if self.mode == "move":
+            # 计算位移差
+            dx = event.x - self.last_mouse_x
+            dy = event.y - self.last_mouse_y
+            
+            self.offset_x += dx
+            self.offset_y += dy
+            
+            self.last_mouse_x = event.x
+            self.last_mouse_y = event.y
+            self.redraw_canvases()
+
+    def on_mouse_up(self, event):
+        pass # 暂时不需要
+
+    def handle_color_pick(self, screen_x, screen_y):
+        """将屏幕坐标转换为图片坐标，并执行去色"""
+        if self.original_cv is None: return
+
+        # 1. 减去偏移量 (offset)
+        # 2. 除以缩放比例 (scale)
+        # 3. 强制转为整数 (int)
+        img_x = int((screen_x - self.offset_x) / self.scale_factor)
+        img_y = int((screen_y - self.offset_y) / self.scale_factor)
+        
+        h, w = self.original_cv.shape[:2]
+        
+        # 检查是否点击在图片范围内
+        if 0 <= img_x < w and 0 <= img_y < h:
+            print(f"点击坐标: {img_x}, {img_y}") # 控制台会打印坐标，方便你确认点击是否生效
+            self.add_action(img_x, img_y, self.tolerance)
+
+    # --- 图像处理与渲染 ---
     def upload_image(self):
-        path = filedialog.askopenfilename(filetypes=[("Images", "*.png *.jpg *.jpeg *.bmp")])
+        path = filedialog.askopenfilename(filetypes=[("Images", "*.png *.jpg *.jpeg *.bmp *.webp")])
         if not path: return
         try:
+            # 读取包含透明通道的图片
             self.original_cv = cv2.imdecode(np.fromfile(path, dtype=np.uint8), cv2.IMREAD_UNCHANGED)
             if self.original_cv is None: raise Exception("读取失败")
-            if self.original_cv.shape[2] == 3:
+            
+            # 统一转为 BGRA
+            if len(self.original_cv.shape) == 2: # 灰度
+                self.original_cv = cv2.cvtColor(self.original_cv, cv2.COLOR_GRAY2BGRA)
+            elif self.original_cv.shape[2] == 3: # BGR
                 self.original_cv = cv2.cvtColor(self.original_cv, cv2.COLOR_BGR2BGRA)
             
-            h, w = self.original_cv.shape[:2]
-            self.current_alpha_mask = np.ones((h, w), dtype=np.uint8) * 255
-            
-            # 重置所有状态
-            self.history_stack = []
-            self.active_click_coords = None
-            self.mask_before_active = None
-            
-            self.update_undo_button()
-            self.show_image_on_canvas()
-            self.update_result_preview()
+            self.reset_all() # 重置历史
+            self.reset_view() # 重置视图(居中)
+            self.refresh_result_data() # 计算结果
+            self.redraw_canvases() # 绘制
         except Exception as e:
             messagebox.showerror("错误", str(e))
 
-    def show_image_on_canvas(self):
+    def reset_view(self):
+        """重置为“适应屏幕”大小"""
         if self.original_cv is None: return
-        display_img = self.apply_mask_to_image(self.original_cv, self.current_alpha_mask)
-        img_rgb = cv2.cvtColor(display_img, cv2.COLOR_BGRA2RGBA)
-        img_pil = Image.fromarray(img_rgb)
-        
-        w, h = img_pil.size
-        cw, ch = 600, 600
-        self.scale_factor = min(cw / w, ch / h)
-        new_w, new_h = int(w * self.scale_factor), int(h * self.scale_factor)
-        
-        if new_w <= 0: return
-        img_pil = img_pil.resize((new_w, new_h), Image.Resampling.LANCZOS)
-        self.tk_orig = ImageTk.PhotoImage(img_pil)
-        
-        canvas_w = self.canvas_orig.winfo_width() or 500
-        canvas_h = self.canvas_orig.winfo_height() or 500
-        self.offset_x = (canvas_w - new_w) // 2
-        self.offset_y = (canvas_h - new_h) // 2
-        
-        self.canvas_orig.delete("all")
-        self.canvas_orig.create_image(self.offset_x, self.offset_y, anchor=tk.NW, image=self.tk_orig)
-
-    def on_click_bg(self, event):
-        if self.original_cv is None or self.scale_factor <= 0: return
-        click_x = int((event.x - self.offset_x) / self.scale_factor)
-        click_y = int((event.y - self.offset_y) / self.scale_factor)
         h, w = self.original_cv.shape[:2]
         
-        if 0 <= click_x < w and 0 <= click_y < h:
-            # ★★★ 关键逻辑更新 ★★★
-            
-            # 1. 如果之前已经有一个“活跃”的点击，先把它“提交”进历史记录
-            if self.active_click_coords is not None:
-                # 这里的 mask_before_active 是上上次的状态，我们要存的是上次的状态
-                # 其实很简单：直接把当前的 mask 存入历史，因为它已经包含上一步的结果了
-                self.history_stack.append(self.mask_before_active.copy())
-            
-            # 2. 只有当这是第一步操作，或者刚点了“提交”后，才需要入栈
-            # 为了简化逻辑：我们每次点击新位置时，都把“当前蒙版”视为“新操作前的基准蒙版”
-            self.mask_before_active = self.current_alpha_mask.copy()
-            self.active_click_coords = (click_x, click_y)
-            
-            self.update_undo_button()
-            
-            # 更新颜色预览
-            b, g, r, a = self.original_cv[click_y, click_x]
-            self.lbl_color_preview.config(bg=f'#{r:02x}{g:02x}{b:02x}')
-            
-            # 3. 立即执行一次去背 (使用当前容差)
-            self.perform_flood_fill(click_x, click_y, self.tolerance)
-
-    def update_tolerance(self, val):
-        self.tolerance = int(val)
+        # 获取画布尺寸 (如果没有显示出来，默认给个500)
+        c_w = self.canvas_orig.winfo_width() or 600
+        c_h = self.canvas_orig.winfo_height() or 500
         
-        # ★★★ 实时响应滑块 ★★★
-        # 只有当我们处于“刚点击完，还没点下一个地方”的状态时，滑块才有效
-        if self.active_click_coords is not None:
-            cx, cy = self.active_click_coords
-            # 基于“基准蒙版”重新计算
-            self.perform_flood_fill(cx, cy, self.tolerance)
+        scale_w = c_w / w
+        scale_h = c_h / h
+        self.scale_factor = min(scale_w, scale_h) * 0.9 # 留一点边距
+        
+        new_w = w * self.scale_factor
+        new_h = h * self.scale_factor
+        self.offset_x = (c_w - new_w) / 2
+        self.offset_y = (c_h - new_h) / 2
 
-    def perform_flood_fill(self, x, y, tol):
-        """执行去背，输入是基于 mask_before_active"""
-        if self.mask_before_active is None: return
+    def redraw_canvases(self):
+        """统一绘制左侧和中间的画布 (应用缩放和偏移)"""
+        if self.original_cv is None: return
+        
+        # 1. 绘制左侧原图
+        self.tk_orig = self.get_view_image(self.original_cv)
+        self.canvas_orig.delete("all")
+        self.canvas_orig.create_image(0, 0, anchor=tk.NW, image=self.tk_orig) # 这里用 (0,0) 因为图片已经处理过了
+        
+        # 2. 绘制中间结果图 (如果存在)
+        if self.final_cv_result is not None:
+            # 叠加棋盘格背景以便观察透明度
+            preview_img = self.composite_checkerboard(self.final_cv_result)
+            self.tk_res = self.get_view_image(preview_img)
+            self.canvas_result.delete("all")
+            self.canvas_result.create_image(0, 0, anchor=tk.NW, image=self.tk_res)
 
+    def get_view_image(self, cv_img):
+        """
+        核心渲染函数：根据当前的 scale 和 offset，截取并缩放图片
+        方法：创建一个和 Canvas 一样大的黑色底图，把缩放后的图片贴上去
+        """
+        canvas_w = self.canvas_orig.winfo_width()
+        canvas_h = self.canvas_orig.winfo_height()
+        
+        # 如果窗口太小，给默认值
+        if canvas_w < 10: canvas_w = 600
+        if canvas_h < 10: canvas_h = 500
+
+        # 转为 PIL
+        img_pil = Image.fromarray(cv2.cvtColor(cv_img, cv2.COLOR_BGRA2RGBA))
+        orig_w, orig_h = img_pil.size
+        
+        # 计算缩放后的尺寸
+        new_w = int(orig_w * self.scale_factor)
+        new_h = int(orig_h * self.scale_factor)
+        
+        if new_w <= 0 or new_h <= 0: return None
+        
+        # 缩放图片 (性能优化：如果是巨大的图片，应该先 crop 再 resize，这里简化为先 resize)
+        # 为了流畅度，大图可以使用 Nearest，小图用 Bilinear
+        resample_method = Image.Resampling.NEAREST if new_w > 2000 else Image.Resampling.BILINEAR
+        img_resized = img_pil.resize((new_w, new_h), resample_method)
+        
+        # 创建画布背景 (透明)
+        view_img = Image.new('RGBA', (canvas_w, canvas_h), (50, 50, 50, 0))
+        
+        # 粘贴图片 (offset 决定粘贴位置)
+        paste_x = int(self.offset_x)
+        paste_y = int(self.offset_y)
+        
+        view_img.paste(img_resized, (paste_x, paste_y), img_resized)
+        
+        return ImageTk.PhotoImage(view_img)
+
+    def composite_checkerboard(self, img_bgra):
+        """给结果图加上棋盘格背景"""
+        h, w = img_bgra.shape[:2]
+        # 生成小棋盘格
+        cb = np.full((h, w, 3), 200, dtype=np.uint8) # 浅灰
+        step = 20
+        # 快速生成棋盘格的技巧
+        mask = ((np.indices((h, w))[0] // step) + (np.indices((h, w))[1] // step)) % 2 == 1
+        cb[mask] = 255 # 白色
+        
+        b, g, r, a = cv2.split(img_bgra)
+        alpha = a.astype(float) / 255.0
+        
+        preview = cb.copy()
+        for i in range(3):
+            preview[:,:,i] = (preview[:,:,i] * (1-alpha) + np.array([b,g,r])[i] * alpha).astype(np.uint8)
+            
+        # 补回 Alpha 通道 (为了统一处理函数)
+        return cv2.cvtColor(preview, cv2.COLOR_BGR2BGRA)
+
+    # --- 历史记录逻辑 (保留上一版) ---
+    def add_action(self, x, y, tol):
+        b, g, r, a = self.original_cv[y, x]
+        hex_color = f'#{r:02x}{g:02x}{b:02x}'
+        mask = self.compute_flood_mask(x, y, tol)
+        
+        self.action_counter += 1
+        action_item = {'id': self.action_counter, 'seed': (x, y), 'tolerance': tol, 'mask': mask, 'color_hex': hex_color}
+        self.actions.append(action_item)
+        
+        self.add_history_ui_row(action_item)
+        self.refresh_result_data()
+        self.redraw_canvases()
+
+    def compute_flood_mask(self, x, y, tol):
+        # 取出 BGR 通道 (因为 floodFill 不支持 Alpha 通道)
         img_bgr = self.original_cv[:, :, :3]
-        h, w = img_bgr.shape[:2]
-        flood_mask = np.zeros((h+2, w+2), np.uint8)
         
-        t = tol
-        diff = (t, t, t)
+        # 【关键修复】必须使用 copy()！
+        # 1. floodFill 会修改原图，我们不能破坏 original_cv
+        # 2. 也是为了确保内存连续性，避免 OpenCV 报错
+        img_to_process = img_bgr.copy() 
+        
+        h, w = img_to_process.shape[:2]
+        mask = np.zeros((h+2, w+2), np.uint8)
+        
+        # floodFill 的参数设置
         flags = 4 | (255 << 8) | cv2.FLOODFILL_MASK_ONLY | cv2.FLOODFILL_FIXED_RANGE
         
-        # 计算 floodfill
-        temp_img = img_bgr.copy()
-        cv2.floodFill(temp_img, flood_mask, (x, y), (0,0,0), diff, diff, flags)
-        flood_mask = flood_mask[1:-1, 1:-1]
-        
-        # ★★★ 核心：新蒙版 = 基准蒙版 - 本次计算的区域 ★★★
-        # 我们不是在 current_alpha_mask 上改，而是在 mask_before_active 上改
-        # 这样拖动滑块时，相当于“撤销重做”了这一步，而不是无限叠加
-        self.current_alpha_mask = np.where(flood_mask == 255, 0, self.mask_before_active)
-        
-        self.update_result_preview()
-        self.show_image_on_canvas()
+        try:
+            # 注意：这里传入的是 img_to_process (副本)
+            cv2.floodFill(img_to_process, mask, (x, y), (0,0,0), (tol, tol, tol), (tol, tol, tol), flags)
+            return mask[1:-1, 1:-1]
+        except Exception as e:
+            print(f"Mask Error: {e}") # 打印错误方便调试
+            return np.zeros((h, w), np.uint8)
 
-    def undo_action(self):
-        """撤销逻辑更新"""
-        # 情况A：我有正在调整的活跃点击 -> 取消这一步，回到基准
-        if self.active_click_coords is not None:
-            self.current_alpha_mask = self.mask_before_active
-            self.active_click_coords = None # 退出活跃状态
-            self.mask_before_active = None
-            # 注意：这里不用 pop history，因为活跃状态还没进 history
-            
-        # 情况B：没有活跃点击，但有历史记录 -> 取出上一步
-        elif self.history_stack:
-            prev_mask = self.history_stack.pop()
-            self.current_alpha_mask = prev_mask
-            
-            # 撤销后，我们也需要退出活跃状态，防止逻辑混乱
-            self.active_click_coords = None
-            self.mask_before_active = None
-            
-        self.update_undo_button()
-        self.update_result_preview()
-        self.show_image_on_canvas()
+    def update_last_action_tolerance(self, val):
+        if not self.actions: return
+        tol = int(val)
+        if self.tolerance == tol: return # 避免重复计算
+        self.tolerance = tol
+        
+        last_action = self.actions[-1]
+        x, y = last_action['seed']
+        new_mask = self.compute_flood_mask(x, y, tol)
+        last_action['tolerance'] = tol
+        last_action['mask'] = new_mask
+        self.refresh_result_data()
+        self.redraw_canvases()
 
-    def reset_image(self):
+    def delete_action(self, action_id, ui_row_frame):
+        self.actions = [a for a in self.actions if a['id'] != action_id]
+        ui_row_frame.destroy()
+        self.refresh_result_data()
+        self.redraw_canvases()
+
+    def add_history_ui_row(self, action):
+        """UI: 历史记录行 (简化版)"""
+        row_frame = tk.Frame(self.scrollable_frame, bg="white", pady=5)
+        row_frame.pack(fill=tk.X, padx=5, pady=2)
+        
+        # 色块
+        tk.Label(row_frame, bg=action['color_hex'], width=6, height=1, relief="solid", bd=1).pack(side=tk.LEFT, padx=8)
+        # 文字
+        tk.Label(row_frame, text="去除该颜色", bg="white", fg="#333", font=("Arial", 10)).pack(side=tk.LEFT)
+        # 删除按钮
+        tk.Button(row_frame, text="✖", command=lambda a_id=action['id'], f=row_frame: self.delete_action(a_id, f),
+                  bg="white", fg="#999", activeforeground="red", relief="flat", bd=0).pack(side=tk.RIGHT, padx=5)
+        
+        tk.Frame(self.scrollable_frame, height=1, bg="#f0f0f0").pack(fill=tk.X, padx=5)
+
+    def refresh_result_data(self):
+        """只计算数据，不负责绘制"""
         if self.original_cv is None: return
         h, w = self.original_cv.shape[:2]
-        self.current_alpha_mask = np.ones((h, w), dtype=np.uint8) * 255
-        self.history_stack = []
-        self.active_click_coords = None
-        self.mask_before_active = None
-        self.update_undo_button()
-        self.update_result_preview()
-        self.show_image_on_canvas()
+        total_alpha_mask = np.ones((h, w), dtype=np.uint8) * 255
+        for action in self.actions:
+            total_alpha_mask = np.where(action['mask'] == 255, 0, total_alpha_mask)
+        
+        result = self.original_cv.copy()
+        result[:, :, 3] = total_alpha_mask
+        self.final_cv_result = result
 
-    def update_undo_button(self):
-        # 只要有历史，或者当前有正在调整的步骤，都可以撤销
-        can_undo = len(self.history_stack) > 0 or self.active_click_coords is not None
-        if can_undo:
-            # 显示更智能的提示
-            txt = "↩️ 撤销"
-            if self.active_click_coords:
-                txt += " (当前步)"
-            self.btn_undo.config(state=tk.NORMAL, text=txt)
-        else:
-            self.btn_undo.config(state=tk.DISABLED, text="↩️ 撤销")
-
-    def apply_mask_to_image(self, img, mask):
-        result = img.copy()
-        result[:, :, 3] = mask
-        return result
-
-    def update_result_preview(self):
-        if self.original_cv is None: return
-        self.final_cv_result = self.apply_mask_to_image(self.original_cv, self.current_alpha_mask)
-        h, w = self.final_cv_result.shape[:2]
-        checkerboard = self.generate_checkerboard(h, w)
-        b, g, r, a = cv2.split(self.final_cv_result)
-        alpha = a.astype(float) / 255.0
-        preview = checkerboard.copy()
-        for i in range(3):
-             preview[:,:,i] = (preview[:,:,i] * (1-alpha) + np.array([b,g,r])[i] * alpha).astype(np.uint8)
-        img_pil = Image.fromarray(cv2.cvtColor(preview, cv2.COLOR_BGR2RGB))
-        new_w, new_h = int(w * self.scale_factor), int(h * self.scale_factor)
-        if new_w > 0:
-            img_pil = img_pil.resize((new_w, new_h))
-            self.tk_res = ImageTk.PhotoImage(img_pil)
-            self.lbl_result.config(image=self.tk_res)
-
-    def generate_checkerboard(self, h, w, step=20):
-        board = np.full((h, w, 3), 255, dtype=np.uint8)
-        for y in range(0, h, step):
-            for x in range(0, w, step):
-                if ((x // step) + (y // step)) % 2 == 1:
-                    y_end = min(y + step, h)
-                    x_end = min(x + step, w)
-                    board[y:y_end, x:x_end] = (220, 220, 220)
-        return board
+    def reset_all(self):
+        self.actions = []
+        self.action_counter = 0
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+        self.refresh_result_data()
+        self.redraw_canvases()
 
     def save_image(self):
         if self.final_cv_result is not None:
             path = filedialog.asksaveasfilename(defaultextension=".png", filetypes=[("PNG", "*.png")])
             if path:
-                is_success, buffer = cv2.imencode(".png", self.final_cv_result)
-                if is_success:
-                    with open(path, "wb") as f:
-                        f.write(buffer)
+                cv2.imencode(".png", self.final_cv_result)[1].tofile(path)
                 messagebox.showinfo("成功", "保存成功")
 
 if __name__ == "__main__":
