@@ -14,6 +14,13 @@ screenshots, scanned artwork.
 
 ![MagicRemover](docs/screenshot.png)
 
+## Download
+
+**[MagicRemover.exe](https://github.com/xzh1988g/Background_Removal/releases/latest/download/MagicRemover.exe)** — Windows 64-bit, self-contained, no Python needed.
+
+The executable is not code-signed, so Windows SmartScreen will flag the publisher as
+unknown; choose **More info → Run anyway**, or run from source as described below.
+
 ## Features
 
 - **Click-to-remove colour keying** — click any colour in the image; flood fill selects
@@ -123,6 +130,13 @@ pixel data is never modified.
 颜色键控）而不是模型，每一次去除都由你自己瞄准、微调、叠加和撤销，且全程不联网。
 
 最适合纯色背景的图片——logo、商品图、截图、扫描稿。
+
+## 下载
+
+**[MagicRemover.exe](https://github.com/xzh1988g/Background_Removal/releases/latest/download/MagicRemover.exe)** — Windows 64 位，单文件自包含，无需安装 Python。
+
+由于没有做代码签名，Windows SmartScreen 会提示"未知发布者"，点 **更多信息 → 仍要运行**
+即可；也可以按下文说明从源码运行。
 
 ## 功能
 
