@@ -12,7 +12,7 @@ machine.
 Best suited to images with flat, solid-colour backgrounds — logos, product shots,
 screenshots, scanned artwork.
 
-<!-- Add a screenshot here: ![MagicRemover](docs/screenshot.png) -->
+![MagicRemover](docs/screenshot.png)
 
 ## Features
 
@@ -24,12 +24,22 @@ screenshots, scanned artwork.
   dial in the edge without starting over.
 - **Synced dual view** — the original and the transparency preview (rendered over a
   checkerboard) share one zoom/pan viewport, so you always compare the same region.
-- **Pick / Move modes** — scroll to zoom toward the cursor, drag to pan.
+- **Pick / Move modes** — scroll to zoom toward the cursor, drag to pan. Only the
+  on-screen region is ever scaled, so zooming stays fast on large images.
 - **Export with resizing** — save as PNG at original size, or a custom size with
   optional aspect-ratio lock.
-- **Bilingual UI** — full English and Chinese interface strings.
+- **Bilingual UI** — switch between English and Chinese at runtime; no restart.
 - **Unicode-safe file I/O** — uses `cv2.imdecode`/`imencode` so non-ASCII paths
   (e.g. Chinese filenames) work correctly on Windows.
+- **Runs offline** — no network calls, no uploads, no account.
+
+### Shortcuts
+
+| Key | Action |
+| --- | --- |
+| `Ctrl` + `O` | Open image |
+| `Ctrl` + `S` | Save result |
+| `Ctrl` + `Z` | Undo the latest pick |
 
 ## Requirements
 
@@ -48,16 +58,30 @@ pip install opencv-python numpy Pillow
 python bg_remover.py
 ```
 
+### Build a standalone .exe (Windows)
+
+```bash
+pip install pyinstaller
+pyinstaller --onefile --windowed --name MagicRemover bg_remover.py
+```
+
+The result is a single self-contained `dist/MagicRemover.exe` (~70 MB — OpenCV and
+NumPy are bundled) that runs on machines with no Python installed.
+
 ## Usage
 
-1. **📂 Open Image** — loads PNG / JPG / BMP / WEBP.
-2. Stay in **🖌️ Pick Mode** and click the background colour you want gone.
+1. **Open Image** — loads PNG / JPG / BMP / WEBP.
+2. Stay in **Pick** mode and click the background colour you want gone.
 3. Drag the **Tolerance** slider to tighten or loosen that pick until the edge looks right.
 4. Click more colours to remove them too — each becomes its own entry in **History**.
-   Click **✖** on any entry to take just that one back.
-5. Switch to **✋ Move Mode** to drag the view; the scroll wheel zooms in either mode.
-6. **💾 Save Result** — choose original or custom export size, then save as PNG.
-7. **🔄 Reset All** clears every pick and returns to the untouched image.
+   Click **✕** on any entry to take just that one back.
+5. Switch to **Move** mode to drag the view; the scroll wheel zooms in either mode,
+   and **Fit** returns to the whole image.
+6. **Save Result** — choose original or custom export size, then save as PNG.
+7. **Reset All** clears every pick and returns to the untouched image.
+
+Use the **中文 / EN** button in the top-right corner to switch languages at any time —
+your picks and zoom are preserved across the switch.
 
 ## How it works
 
@@ -72,17 +96,6 @@ every change: start from a fully opaque alpha channel, zero it wherever any mask
 set, write it into a copy of the original. This is what makes the history genuinely
 non-destructive — deleting a pick simply drops it from the list, and the original
 pixel data is never modified.
-
-## Switching the interface language
-
-The active language is set by one line in `MagicRemover.__init__`:
-
-```python
-# self.ui_text = self.EN_TEXT  # <--- Active: English
-self.ui_text = self.CN_TEXT    # <--- Active: Chinese
-```
-
-Comment one out and uncomment the other. There is no runtime language toggle yet.
 
 ## Known limitations
 
@@ -120,10 +133,20 @@ Comment one out and uncomment the other. There is no runtime language toggle yet
 - **可调容差** — 滑块会实时重算最近一次取色，不必推倒重来就能调好边缘。
 - **双视图同步** — 原图与透明预览（棋盘格背景）共用同一套缩放/平移视图，永远在对比
   同一块区域。
-- **取色 / 移动 双模式** — 滚轮以光标为中心缩放，拖拽平移。
+- **取色 / 移动 双模式** — 滚轮以光标为中心缩放，拖拽平移。只有屏幕上可见的区域会被
+  缩放绘制，因此再大的图放到多少倍都不卡。
 - **导出可缩放** — 保存为 PNG，可选原始尺寸或自定义尺寸（支持锁定长宽比）。
-- **双语界面** — 完整的中英文界面文案。
+- **双语界面** — 中英文可随时切换，无需重启。
 - **中文路径安全** — 使用 `cv2.imdecode`/`imencode` 读写，Windows 下中文文件名可正常读写。
+- **完全离线** — 不联网、不上传、不需要账号。
+
+### 快捷键
+
+| 按键 | 功能 |
+| --- | --- |
+| `Ctrl` + `O` | 打开图片 |
+| `Ctrl` + `S` | 保存结果 |
+| `Ctrl` + `Z` | 撤销最近一次取色 |
 
 ## 环境要求
 
@@ -141,16 +164,28 @@ pip install opencv-python numpy Pillow
 python bg_remover.py
 ```
 
+### 打包成独立 exe（Windows）
+
+```bash
+pip install pyinstaller
+pyinstaller --onefile --windowed --name MagicRemover bg_remover.py
+```
+
+产物是单个自包含的 `dist/MagicRemover.exe`（约 70 MB，因为打包了 OpenCV 和 NumPy），
+在没装 Python 的电脑上双击即可运行。
+
 ## 使用方法
 
-1. **📂 打开图片** — 支持 PNG / JPG / BMP / WEBP。
-2. 保持在 **🖌️ 取色模式**，点击你想去掉的背景颜色。
+1. **打开图片** — 支持 PNG / JPG / BMP / WEBP。
+2. 保持在 **取色** 模式，点击你想去掉的背景颜色。
 3. 拖动 **容差值** 滑块收紧或放宽这次取色，直到边缘合适。
-4. 继续点击其他颜色一并去除——每次都会成为 **操作历史** 里的一条。点某条的 **✖**
+4. 继续点击其他颜色一并去除——每次都会成为 **操作历史** 里的一条。点某条的 **✕**
    即可只撤销那一次。
-5. 切到 **✋ 移动模式** 拖动画面；两种模式下滚轮都能缩放。
-6. **💾 保存结果** — 选择原始或自定义导出尺寸，保存为 PNG。
-7. **🔄 全部重置** 清空所有操作，回到未处理的原图。
+5. 切到 **移动** 模式拖动画面；两种模式下滚轮都能缩放，**适应窗口** 可回到全图。
+6. **保存结果** — 选择原始或自定义导出尺寸，保存为 PNG。
+7. **全部重置** 清空所有操作，回到未处理的原图。
+
+右上角的 **EN / 中文** 按钮可随时切换语言，已有的操作历史和缩放状态都会保留。
 
 ## 实现原理
 
@@ -162,17 +197,6 @@ python bg_remover.py
 因为掩码是以列表形式保存的，最终图像在每次变动时都从头重算：从完全不透明的 alpha
 通道开始，把任意掩码覆盖到的位置置零，再写入原图的副本。这正是历史记录真正"非破坏性"
 的原因——删除一次取色只是把它从列表里移除，原始像素数据从未被修改过。
-
-## 切换界面语言
-
-当前语言由 `MagicRemover.__init__` 里的一行决定：
-
-```python
-# self.ui_text = self.EN_TEXT  # <--- Active: English
-self.ui_text = self.CN_TEXT    # <--- Active: Chinese
-```
-
-注释掉一行、取消注释另一行即可。目前还没有运行时的语言切换开关。
 
 ## 已知限制
 
