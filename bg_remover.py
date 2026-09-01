@@ -15,7 +15,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageTk
 
-APP_VERSION = "6.0"
+APP_VERSION = "7.0"
 
 # ============================================================================
 # Interface strings
@@ -28,6 +28,9 @@ TEXTS = {
         "btn_save": "Save Result",
         "btn_reset": "Reset All",
         "btn_fit": "Fit",
+        "btn_guide": "Guide",
+        "guide_title": "User Guide",
+        "guide_close": "Close",
         "label_tol": "Tolerance",
         "tol_hint": "applies to the latest pick",
         "mode_pick": "Pick",
@@ -60,6 +63,9 @@ TEXTS = {
         "btn_save": "保存结果",
         "btn_reset": "全部重置",
         "btn_fit": "适应窗口",
+        "btn_guide": "使用指南",
+        "guide_title": "使用指南",
+        "guide_close": "关闭",
         "label_tol": "容差值",
         "tol_hint": "作用于最近一次取色",
         "mode_pick": "取色",
@@ -89,6 +95,203 @@ TEXTS = {
 }
 
 # ============================================================================
+# User guide content
+#
+# Blocks are (kind, payload) pairs rendered by MagicRemover._render_guide:
+#   h    heading                p    paragraph            ol   numbered steps
+#   ul   (term, detail) pairs   kbd  (keys, action) pairs
+# Kept as data in both languages so the guide follows the language switch.
+# ============================================================================
+
+GUIDE = {
+    "en": [
+        ("p", "MagicRemover removes backgrounds with classic computer vision "
+              "\u2014 flood-fill colour keying \u2014 instead of an AI model. Every "
+              "removal is something you aim, tune, stack and undo yourself, and "
+              "nothing ever leaves your machine."),
+        ("p", "It is best suited to images with flat, solid-colour backgrounds: "
+              "logos, product shots, screenshots, scanned artwork."),
+
+        ("h", "Getting started"),
+        ("ol", [
+            "Open Image loads a PNG / JPG / BMP / WEBP file.",
+            "Stay in Pick mode and click the background colour you want gone. "
+            "You can click in either view \u2014 the source or the result.",
+            "Drag the Tolerance slider to tighten or loosen that pick until the "
+            "edge looks right.",
+            "Click more colours to remove them too. Each becomes its own entry "
+            "in History; click \u2715 on an entry to take just that one back.",
+            "Switch to Move mode to drag the view. The scroll wheel zooms in "
+            "either mode, and Fit returns to the whole image.",
+            "Save Result \u2014 choose the original or a custom export size, then "
+            "save as PNG.",
+            "Reset All clears every pick and returns to the untouched image.",
+        ]),
+
+        ("h", "Aiming with the crosshair"),
+        ("p", "While the pointer is over the source image, a crosshair on the "
+              "result view marks the exact pixel under it. Use it to aim: find "
+              "the leftover area in the result that you still want gone, move "
+              "the pointer until the ring sits on it, then click."),
+
+        ("h", "Shortcuts"),
+        ("kbd", [
+            ("Ctrl + O", "Open image"),
+            ("Ctrl + S", "Save result"),
+            ("Ctrl + Z", "Undo the latest pick"),
+            ("F1", "Open this guide"),
+        ]),
+
+        ("h", "Features"),
+        ("ul", [
+            ("Click-to-remove colour keying",
+             "Click any colour in the image; flood fill selects the contiguous "
+             "region within an adjustable tolerance and writes it to the alpha "
+             "channel."),
+            ("Non-destructive, editable history",
+             "Every pick is a separate layer in the history panel. Delete any "
+             "one of them at any time; the result recomposites instantly."),
+            ("Adjustable tolerance",
+             "The slider retunes the most recent pick live, so you can dial in "
+             "the edge without starting over."),
+            ("Synced dual view",
+             "The original and the transparency preview (rendered over a "
+             "checkerboard) share one zoom/pan viewport, so you always compare "
+             "the same region."),
+            ("Pick / Move modes",
+             "Scroll to zoom toward the cursor, drag to pan. Only the on-screen "
+             "region is ever scaled, so zooming stays fast on large images."),
+            ("Export with resizing",
+             "Save as PNG at the original size, or a custom size with optional "
+             "aspect-ratio lock."),
+            ("Bilingual UI",
+             "Switch between English and Chinese at runtime \u2014 no restart, and "
+             "your picks and zoom are preserved."),
+            ("Runs offline",
+             "No network calls, no uploads, no account."),
+        ]),
+
+        ("h", "How it works"),
+        ("p", "The image is loaded as BGRA. Each click runs cv2.floodFill in "
+              "FLOODFILL_MASK_ONLY mode with FLOODFILL_FIXED_RANGE, meaning "
+              "every pixel is compared against the seed colour you clicked (not "
+              "against its neighbour), within \u00b1tolerance on each channel. That "
+              "produces a binary mask, stored alongside its seed point and "
+              "tolerance rather than being applied immediately."),
+        ("p", "Because the masks are kept as a list, the final image is "
+              "recomputed from scratch on every change: start from a fully "
+              "opaque alpha channel, zero it wherever any mask is set, write it "
+              "into a copy of the original. This is what makes the history "
+              "genuinely non-destructive \u2014 deleting a pick simply drops it from "
+              "the list, and the original pixel data is never modified."),
+
+        ("h", "Known limitations"),
+        ("ul", [
+            ("Flat backgrounds only.",
+             "Flood fill keys on colour similarity, so gradients, textures and "
+             "busy backgrounds will not separate cleanly. This is not a matting "
+             "model \u2014 it cannot cut out hair or soft, semi-transparent edges."),
+            ("Hard alpha edges.",
+             "The mask is binary with no feathering or anti-aliasing, which can "
+             "leave visible stair-stepping on curves against a contrasting new "
+             "background."),
+            ("Tolerance affects the latest pick only.",
+             "Earlier picks keep the tolerance they were made with; to change "
+             "one, delete it and pick again."),
+            ("Export is PNG only.",
+             "Which is the format that preserves transparency anyway."),
+        ]),
+
+        ("h", "About"),
+        ("p", "MagicRemover v%s \u00b7 MIT licence \u00b7 runs entirely offline."
+              % APP_VERSION),
+    ],
+
+    "zh": [
+        ("p", "MagicRemover 用传统计算机视觉（漫水填充颜色键控）而不是 AI 模型来去背。"
+              "每一次去除都由你自己瞄准、微调、叠加和撤销，且全程不联网，图片不会离开"
+              "你的电脑。"),
+        ("p", "最适合纯色背景的图片——logo、商品图、截图、扫描稿。"),
+
+        ("h", "快速上手"),
+        ("ol", [
+            "打开图片，支持 PNG / JPG / BMP / WEBP。",
+            "保持在取色模式，点击你想去掉的背景颜色。左右两个视图都可以点。",
+            "拖动容差值滑块收紧或放宽这次取色，直到边缘合适。",
+            "继续点击其他颜色一并去除。每次都会成为操作历史里的一条，"
+            "点某条的 \u2715 即可只撤销那一次。",
+            "切到移动模式拖动画面。两种模式下滚轮都能缩放，适应窗口可回到全图。",
+            "保存结果——选择原始或自定义导出尺寸，保存为 PNG。",
+            "全部重置清空所有操作，回到未处理的原图。",
+        ]),
+
+        ("h", "用准星瞄准"),
+        ("p", "当鼠标在左侧原图上时，右侧结果预览会出现一个准星，标出鼠标所指的那个"
+              "像素。用它来瞄准：先在右边找到你还想去掉的残留区域，移动鼠标让圆环"
+              "套上它，然后点击。"),
+
+        ("h", "快捷键"),
+        ("kbd", [
+            ("Ctrl + O", "打开图片"),
+            ("Ctrl + S", "保存结果"),
+            ("Ctrl + Z", "撤销最近一次取色"),
+            ("F1", "打开本指南"),
+        ]),
+
+        ("h", "功能"),
+        ("ul", [
+            ("点击即去除的颜色键控",
+             "点击图中任意颜色，漫水填充按可调容差选出相连区域并写入 alpha 通道。"),
+            ("非破坏性的可编辑历史",
+             "每次取色都是历史面板中独立的一层，随时可以删掉其中任意一条，"
+             "结果立即重新合成。"),
+            ("可调容差",
+             "滑块会实时重算最近一次取色，不必推倒重来就能调好边缘。"),
+            ("双视图同步",
+             "原图与透明预览（棋盘格背景）共用同一套缩放/平移视图，"
+             "永远在对比同一块区域。"),
+            ("取色 / 移动 双模式",
+             "滚轮以光标为中心缩放，拖拽平移。只有屏幕上可见的区域会被缩放绘制，"
+             "因此再大的图放到多少倍都不卡。"),
+            ("导出可缩放",
+             "保存为 PNG，可选原始尺寸或自定义尺寸（支持锁定长宽比）。"),
+            ("双语界面",
+             "中英文可随时切换，无需重启，已有的操作历史和缩放状态都会保留。"),
+            ("完全离线",
+             "不联网、不上传、不需要账号。"),
+        ]),
+
+        ("h", "实现原理"),
+        ("p", "图片以 BGRA 格式载入。每次点击调用 cv2.floodFill，使用 "
+              "FLOODFILL_MASK_ONLY 加 FLOODFILL_FIXED_RANGE——即每个像素都与你点击的"
+              "种子颜色比较（而非与相邻像素比较），各通道容差为 ±容差值。这会产生一张"
+              "二值掩码，它与种子点、容差一起被存起来，而不是立刻应用到图上。"),
+        ("p", "因为掩码是以列表形式保存的，最终图像在每次变动时都从头重算：从完全"
+              "不透明的 alpha 通道开始，把任意掩码覆盖到的位置置零，再写入原图的副本。"
+              "这正是历史记录真正非破坏性的原因——删除一次取色只是把它从列表里移除，"
+              "原始像素数据从未被修改过。"),
+
+        ("h", "已知限制"),
+        ("ul", [
+            ("仅适用于纯色背景。",
+             "漫水填充依据颜色相似度工作，因此渐变、纹理和复杂背景无法干净分离。"
+             "它不是抠图模型，做不了头发丝和半透明的柔和边缘。"),
+            ("alpha 边缘是硬的。",
+             "掩码是二值的，没有羽化或抗锯齿，换到反差大的新背景上时曲线边缘"
+             "可能有可见的锯齿。"),
+            ("容差滑块只影响最近一次取色。",
+             "更早的操作保持它们当时的容差；要改就删掉重新取色。"),
+            ("只能导出 PNG。",
+             "本来也只有 PNG 能保留透明度。"),
+        ]),
+
+        ("h", "关于"),
+        ("p", "MagicRemover v%s \u00b7 MIT 许可证 \u00b7 完全离线运行。" % APP_VERSION),
+    ],
+}
+
+
+# ============================================================================
 # Theme
 # ============================================================================
 
@@ -113,6 +316,10 @@ F_LABEL = (FONT, 9, "bold")
 CHECKER_LIGHT = 255
 CHECKER_DARK = 205
 CHECKER_STEP = 12
+
+CURSOR_TAG = "cursor"   # canvas tag for the position marker, deleted per redraw
+CURSOR_RING_R = 7
+CURSOR_DASH = (5, 5)
 
 
 class Slider(tk.Canvas):
@@ -209,6 +416,9 @@ class MagicRemover:
         self.last_mouse_x = 0
         self.last_mouse_y = 0
         self.tolerance = 40
+        self.cursor_pos = None   # image coords under the pointer, mirrored to the result view
+        self.guide_win = None
+        self._guide_wraps = []   # (label, horizontal chrome) pairs, rewrapped on resize
 
         self.root.configure(bg=BG_APP)
         self.root.geometry("1400x880")
@@ -285,6 +495,8 @@ class MagicRemover:
     # ------------------------------------------------------------------
     def _build_ui(self):
         """Build every widget. Called again from scratch on a language switch."""
+        self.cursor_pos = None
+        self.guide_win = None    # a Toplevel is a child of root, so it is destroyed below
         for child in self.root.winfo_children():
             child.destroy()
 
@@ -301,14 +513,18 @@ class MagicRemover:
 
         self._build_statusbar()
 
-        # Pointer interaction lives on the source canvas only.
-        self.canvas_orig.bind("<Button-1>", self.on_mouse_down)
-        self.canvas_orig.bind("<B1-Motion>", self.on_mouse_drag)
+        # Both viewports share one zoom/pan and are the same size, so canvas-
+        # relative event coords mean the same thing in either one — picking and
+        # panning work from whichever view you happen to be looking at.
         for c in (self.canvas_orig, self.canvas_result):
+            c.bind("<Button-1>", self.on_mouse_down)
+            c.bind("<B1-Motion>", self.on_mouse_drag)
             c.bind("<MouseWheel>", self.on_zoom)
             c.bind("<Button-4>", self.on_zoom)
             c.bind("<Button-5>", self.on_zoom)
             c.bind("<Configure>", lambda e: self.redraw_canvases())
+        self.canvas_orig.bind("<Motion>", self.on_mouse_move)
+        self.canvas_orig.bind("<Leave>", self.on_mouse_leave)
 
         self.set_mode(self.mode)
         for action in self.actions:
@@ -355,6 +571,8 @@ class MagicRemover:
         # Right-hand side
         ttk.Button(bar, text=self.t["lang_switch"], style="Lang.TButton", width=6,
                    command=self.toggle_language).pack(side=tk.RIGHT)
+        ttk.Button(bar, text=self.t["btn_guide"], style="Lang.TButton",
+                   command=self.show_guide).pack(side=tk.RIGHT, padx=(0, 4))
         ttk.Separator(bar, orient="vertical").pack(side=tk.RIGHT, fill=tk.Y, padx=14)
         ttk.Button(bar, text=self.t["btn_save"], style="Accent.TButton",
                    command=self.save_image).pack(side=tk.RIGHT)
@@ -429,15 +647,19 @@ class MagicRemover:
         self.root.bind("<Control-o>", lambda e: self.upload_image())
         self.root.bind("<Control-s>", lambda e: self.save_image())
         self.root.bind("<Control-z>", lambda e: self.undo_last())
+        self.root.bind("<F1>", lambda e: self.show_guide())
 
     # ------------------------------------------------------------------
     # Language
     # ------------------------------------------------------------------
     def toggle_language(self):
+        guide_was_open = self.guide_win is not None and self.guide_win.winfo_exists()
         self.lang = "en" if self.lang == "zh" else "zh"
         self.t = TEXTS[self.lang]
         self._build_ui()          # state is preserved; only widgets are rebuilt
         self.update_status()
+        if guide_was_open:
+            self.show_guide()     # _build_ui destroyed it; bring it back translated
 
     # ------------------------------------------------------------------
     # Interaction
@@ -447,7 +669,8 @@ class MagicRemover:
         picking = mode == "pick"
         self.btn_pick.configure(style="SegOn.TButton" if picking else "Seg.TButton")
         self.btn_move.configure(style="Seg.TButton" if picking else "SegOn.TButton")
-        self.canvas_orig.config(cursor="crosshair" if picking else "fleur")
+        for c in (self.canvas_orig, self.canvas_result):
+            c.config(cursor="crosshair" if picking else "fleur")
 
     def on_zoom(self, event):
         if self.original_cv is None:
@@ -481,14 +704,34 @@ class MagicRemover:
         self.last_mouse_x, self.last_mouse_y = event.x, event.y
         self.redraw_canvases()
 
-    def handle_color_pick(self, screen_x, screen_y):
-        if self.original_cv is None:
+    def on_mouse_move(self, event):
+        """Mirror the pointer's image position onto the result view."""
+        pos = self.screen_to_image(event.x, event.y)
+        if pos == self.cursor_pos:
             return
+        self.cursor_pos = pos
+        self._draw_cursor_marker()
+
+    def on_mouse_leave(self, _):
+        if self.cursor_pos is not None:
+            self.cursor_pos = None
+            self._draw_cursor_marker()
+
+    def screen_to_image(self, screen_x, screen_y):
+        """Canvas coords -> image coords, or None if outside the image."""
+        if self.original_cv is None:
+            return None
         img_x = int((screen_x - self.offset_x) / self.scale_factor)
         img_y = int((screen_y - self.offset_y) / self.scale_factor)
         h, w = self.original_cv.shape[:2]
         if 0 <= img_x < w and 0 <= img_y < h:
-            self.add_action(img_x, img_y, self.tolerance)
+            return img_x, img_y
+        return None
+
+    def handle_color_pick(self, screen_x, screen_y):
+        pos = self.screen_to_image(screen_x, screen_y)
+        if pos is not None:
+            self.add_action(pos[0], pos[1], self.tolerance)
 
     # ------------------------------------------------------------------
     # Image IO
@@ -564,6 +807,7 @@ class MagicRemover:
             return
         self.tk_orig = self._render(self.canvas_orig, self.original_cv, checker=False)
         self.tk_res = self._render(self.canvas_result, self.final_cv_result, checker=True)
+        self._draw_cursor_marker()   # _render cleared the canvas
 
     def _render(self, canvas, cv_img, checker):
         """Draw the visible slice of cv_img into canvas at the shared zoom/pan.
@@ -604,6 +848,42 @@ class MagicRemover:
             anchor=tk.NW, image=photo,
         )
         return photo  # caller keeps the reference alive
+
+    def _draw_cursor_marker(self):
+        """Crosshair on the result view marking where the pointer is in the source.
+
+        Anchored to image coordinates, not screen ones, so it stays on the same
+        pixel while the view is panned or zoomed. Drawn in alternating white and
+        accent dashes so it stays visible over both the image and the
+        checkerboard.
+        """
+        canvas = self.canvas_result
+        canvas.delete(CURSOR_TAG)
+        if self.cursor_pos is None or self.final_cv_result is None:
+            return
+
+        img_x, img_y = self.cursor_pos
+        s = self.scale_factor
+        cx = self.offset_x + (img_x + 0.5) * s   # centre of the pixel, not its corner
+        cy = self.offset_y + (img_y + 0.5) * s
+        cw, ch = canvas.winfo_width(), canvas.winfo_height()
+
+        # A solid white line under a dashed accent one: the gaps in the dashes
+        # show the white through, so the crosshair stays legible over dark
+        # pixels, light pixels and the checkerboard alike. (Two offset dashed
+        # lines would be tidier, but Tk approximates dash patterns and ignores
+        # dashoffset on Windows, which just hides one line under the other.)
+        r = CURSOR_RING_R
+        gap = r + 3   # the lines stop short of the ring, leaving the target pixel clear
+        for coords in ((0, cy, cx - gap, cy), (cx + gap, cy, cw, cy),
+                       (cx, 0, cx, cy - gap), (cx, cy + gap, cx, ch)):
+            canvas.create_line(*coords, fill="#ffffff", width=1, tags=CURSOR_TAG)
+            canvas.create_line(*coords, fill=ACCENT, width=1,
+                               dash=CURSOR_DASH, tags=CURSOR_TAG)
+
+        box = (cx - r, cy - r, cx + r, cy + r)
+        canvas.create_oval(*box, outline="#ffffff", width=3, tags=CURSOR_TAG)
+        canvas.create_oval(*box, outline=ACCENT, width=1, tags=CURSOR_TAG)
 
     @staticmethod
     def _composite_checkerboard(img_bgra):
@@ -760,6 +1040,154 @@ class MagicRemover:
         self.refresh_result_data()
         self.redraw_canvases()
         self.update_status()
+
+
+    # ------------------------------------------------------------------
+    # User guide
+    # ------------------------------------------------------------------
+    GUIDE_PAD = 22           # left/right margin inside the guide
+    GUIDE_STEP_W = 30        # width of the step-number gutter
+    GUIDE_DETAIL_IN = 16     # extra indent under a feature term
+
+    def show_guide(self):
+        """Open the guide, or raise it if it is already up.
+
+        Deliberately not modal: it is meant to stay open beside the main window
+        while you work through the steps.
+        """
+        if self.guide_win is not None and self.guide_win.winfo_exists():
+            self.guide_win.deiconify()
+            self.guide_win.lift()
+            self.guide_win.focus_set()
+            return
+
+        win = tk.Toplevel(self.root)
+        self.guide_win = win
+        win.title(self.t["guide_title"])
+        win.configure(bg=BG_APP)
+        win.geometry("780x680")
+        win.minsize(460, 320)
+        win.transient(self.root)
+
+        header = tk.Frame(win, bg=BG_PANEL)
+        header.pack(fill=tk.X)
+        tk.Label(header, text=self.t["guide_title"], bg=BG_PANEL, fg=TEXT,
+                 font=(FONT, 12, "bold"), anchor="w",
+                 padx=self.GUIDE_PAD, pady=12).pack(fill=tk.X)
+        tk.Frame(win, height=1, bg=BORDER).pack(fill=tk.X)
+
+        # Footer is packed before the body so it keeps its height when the
+        # body expands.
+        footer = tk.Frame(win, bg=BG_PANEL)
+        footer.pack(side=tk.BOTTOM, fill=tk.X)
+        ttk.Button(footer, text=self.t["guide_close"], style="Tool.TButton",
+                   command=win.destroy).pack(side=tk.RIGHT, padx=16, pady=10)
+        tk.Frame(win, height=1, bg=BORDER).pack(side=tk.BOTTOM, fill=tk.X)
+
+        body = tk.Frame(win, bg=BG_APP)
+        body.pack(fill=tk.BOTH, expand=True)
+        canvas = tk.Canvas(body, bg=BG_APP, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(body, orient="vertical", command=canvas.yview)
+        inner = tk.Frame(canvas, bg=BG_APP)
+
+        inner.bind("<Configure>",
+                   lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        window_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def on_resize(event):
+            canvas.itemconfig(window_id, width=event.width)
+            self._reflow_guide(event.width)
+
+        canvas.bind("<Configure>", on_resize)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        self._guide_wraps = []
+        self._render_guide(inner)
+
+        def on_wheel(event):
+            canvas.yview_scroll(1 if (event.num == 5 or event.delta < 0) else -1, "units")
+
+        # Bound per widget rather than with bind_all: a global binding would
+        # also fire over the image viewports and fight with zooming.
+        self._bind_wheel(body, on_wheel)
+
+        win.bind("<Escape>", lambda e: win.destroy())
+        win.update_idletasks()
+        x = self.root.winfo_rootx() + (self.root.winfo_width() - win.winfo_width()) // 2
+        y = self.root.winfo_rooty() + max(0, (self.root.winfo_height() - win.winfo_height()) // 3)
+        win.geometry("+%d+%d" % (x, y))
+
+    def _render_guide(self, parent):
+        """Turn the GUIDE blocks for the current language into widgets."""
+        pad = self.GUIDE_PAD
+
+        def wrapped(label, chrome):
+            """Register a label whose wraplength tracks the window width."""
+            self._guide_wraps.append((label, chrome))
+            return label
+
+        for kind, payload in GUIDE[self.lang]:
+            if kind == "h":
+                box = tk.Frame(parent, bg=BG_APP)
+                box.pack(fill=tk.X, padx=pad, pady=(22, 8))
+                tk.Label(box, text=payload, bg=BG_APP, fg=TEXT,
+                         font=(FONT, 11, "bold"), anchor="w").pack(fill=tk.X)
+                tk.Frame(box, height=1, bg=BORDER).pack(fill=tk.X, pady=(7, 0))
+
+            elif kind == "p":
+                lbl = tk.Label(parent, text=payload, bg=BG_APP, fg=TEXT,
+                               font=F_BODY, justify="left", anchor="w")
+                lbl.pack(fill=tk.X, padx=pad, pady=(0, 9))
+                wrapped(lbl, 2 * pad)
+
+            elif kind == "ol":
+                for i, step in enumerate(payload, 1):
+                    row = tk.Frame(parent, bg=BG_APP)
+                    row.pack(fill=tk.X, padx=pad, pady=3)
+                    tk.Label(row, text="%d." % i, bg=BG_APP, fg=ACCENT, font=F_LABEL,
+                             width=3, anchor="nw").pack(side=tk.LEFT, anchor="n")
+                    lbl = tk.Label(row, text=step, bg=BG_APP, fg=TEXT, font=F_BODY,
+                                   justify="left", anchor="w")
+                    lbl.pack(side=tk.LEFT, fill=tk.X, expand=True)
+                    wrapped(lbl, 2 * pad + self.GUIDE_STEP_W)
+
+            elif kind == "ul":
+                for term, detail in payload:
+                    row = tk.Frame(parent, bg=BG_APP)
+                    row.pack(fill=tk.X, padx=pad, pady=(4, 9))
+                    lbl_term = tk.Label(row, text="\u2022  " + term, bg=BG_APP, fg=TEXT,
+                                        font=(FONT, 10, "bold"), justify="left", anchor="w")
+                    lbl_term.pack(fill=tk.X)
+                    lbl_detail = tk.Label(row, text=detail, bg=BG_APP, fg=TEXT_DIM,
+                                          font=F_SMALL, justify="left", anchor="w")
+                    lbl_detail.pack(fill=tk.X, padx=(self.GUIDE_DETAIL_IN, 0), pady=(2, 0))
+                    wrapped(lbl_term, 2 * pad)
+                    wrapped(lbl_detail, 2 * pad + self.GUIDE_DETAIL_IN)
+
+            elif kind == "kbd":
+                for keys, action in payload:
+                    row = tk.Frame(parent, bg=BG_APP)
+                    row.pack(fill=tk.X, padx=pad, pady=3)
+                    tk.Label(row, text=keys, bg=BG_ELEV, fg=TEXT, font=F_SMALL,
+                             width=11, padx=8, pady=4, highlightbackground=BORDER,
+                             highlightthickness=1).pack(side=tk.LEFT)
+                    tk.Label(row, text=action, bg=BG_APP, fg=TEXT_DIM, font=F_BODY,
+                             anchor="w").pack(side=tk.LEFT, padx=(14, 0))
+
+    def _reflow_guide(self, width):
+        """Rewrap the guide's text to the window's current width."""
+        for label, chrome in self._guide_wraps:
+            if label.winfo_exists():
+                label.configure(wraplength=max(180, width - chrome - 18))
+
+    def _bind_wheel(self, widget, handler):
+        """Bind wheel scrolling on a widget and everything inside it."""
+        for sequence in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+            widget.bind(sequence, handler)
+        for child in widget.winfo_children():
+            self._bind_wheel(child, handler)
 
     # ------------------------------------------------------------------
     # Export dialog

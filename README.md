@@ -31,11 +31,15 @@ unknown; choose **More info → Run anyway**, or run from source as described be
   dial in the edge without starting over.
 - **Synced dual view** — the original and the transparency preview (rendered over a
   checkerboard) share one zoom/pan viewport, so you always compare the same region.
+  A crosshair on the preview marks the pixel under your pointer, so you can aim a
+  pick using the part that has not been removed yet. Clicking works in either view.
 - **Pick / Move modes** — scroll to zoom toward the cursor, drag to pan. Only the
   on-screen region is ever scaled, so zooming stays fast on large images.
 - **Export with resizing** — save as PNG at original size, or a custom size with
   optional aspect-ratio lock.
 - **Bilingual UI** — switch between English and Chinese at runtime; no restart.
+- **Built-in user guide** — usage, shortcuts and limitations in-app and bilingual,
+  from the toolbar or `F1`.
 - **Unicode-safe file I/O** — uses `cv2.imdecode`/`imencode` so non-ASCII paths
   (e.g. Chinese filenames) work correctly on Windows.
 - **Runs offline** — no network calls, no uploads, no account.
@@ -47,6 +51,7 @@ unknown; choose **More info → Run anyway**, or run from source as described be
 | `Ctrl` + `O` | Open image |
 | `Ctrl` + `S` | Save result |
 | `Ctrl` + `Z` | Undo the latest pick |
+| `F1` | Open the user guide |
 
 ## Requirements
 
@@ -78,7 +83,9 @@ NumPy are bundled) that runs on machines with no Python installed.
 ## Usage
 
 1. **Open Image** — loads PNG / JPG / BMP / WEBP.
-2. Stay in **Pick** mode and click the background colour you want gone.
+2. Stay in **Pick** mode and click the background colour you want gone — in either
+   view. The crosshair on the result shows which pixel you are about to hit, so you
+   can aim at whatever is still left over there.
 3. Drag the **Tolerance** slider to tighten or loosen that pick until the edge looks right.
 4. Click more colours to remove them too — each becomes its own entry in **History**.
    Click **✕** on any entry to take just that one back.
@@ -146,11 +153,14 @@ pixel data is never modified.
   一条，结果立即重新合成。
 - **可调容差** — 滑块会实时重算最近一次取色，不必推倒重来就能调好边缘。
 - **双视图同步** — 原图与透明预览（棋盘格背景）共用同一套缩放/平移视图，永远在对比
-  同一块区域。
+  同一块区域。预览上的准星会标出鼠标当前所指的像素，因此可以看着"还没去掉的部分"
+  来瞄准下一次取色。左右两个视图都可以点击取色。
 - **取色 / 移动 双模式** — 滚轮以光标为中心缩放，拖拽平移。只有屏幕上可见的区域会被
   缩放绘制，因此再大的图放到多少倍都不卡。
 - **导出可缩放** — 保存为 PNG，可选原始尺寸或自定义尺寸（支持锁定长宽比）。
 - **双语界面** — 中英文可随时切换，无需重启。
+- **内置使用指南** — 使用方法、快捷键和已知限制都在应用内，中英双语，从工具栏或
+  `F1` 打开。
 - **中文路径安全** — 使用 `cv2.imdecode`/`imencode` 读写，Windows 下中文文件名可正常读写。
 - **完全离线** — 不联网、不上传、不需要账号。
 
@@ -161,6 +171,7 @@ pixel data is never modified.
 | `Ctrl` + `O` | 打开图片 |
 | `Ctrl` + `S` | 保存结果 |
 | `Ctrl` + `Z` | 撤销最近一次取色 |
+| `F1` | 打开使用指南 |
 
 ## 环境要求
 
@@ -191,7 +202,8 @@ pyinstaller --onefile --windowed --name MagicRemover bg_remover.py
 ## 使用方法
 
 1. **打开图片** — 支持 PNG / JPG / BMP / WEBP。
-2. 保持在 **取色** 模式，点击你想去掉的背景颜色。
+2. 保持在 **取色** 模式，点击你想去掉的背景颜色——左右两个视图都可以点。结果预览上的
+   准星会显示你即将命中的像素，所以可以直接对着右边还没去掉的部分瞄准。
 3. 拖动 **容差值** 滑块收紧或放宽这次取色，直到边缘合适。
 4. 继续点击其他颜色一并去除——每次都会成为 **操作历史** 里的一条。点某条的 **✕**
    即可只撤销那一次。
